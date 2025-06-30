@@ -4,13 +4,12 @@
 
 # some of the code here was inspired from https://github.com/whit3rabbit0/project_astro , be sure to check them out
 
-import sys
-import os
 import argparse
 import logging
+import sys
 from typing import Dict, Any, Optional
-import requests
 
+import requests
 from mcp.server.fastmcp import FastMCP
 
 # Configure logging
@@ -24,12 +23,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Default configuration
-DEFAULT_KALI_SERVER = "http://localhost:5000" # change to your linux IP
+DEFAULT_KALI_SERVER = "http://localhost:5000"
 DEFAULT_REQUEST_TIMEOUT = 300  # 5 minutes default timeout for API requests
+
 
 class KaliToolsClient:
     """Client for communicating with the Kali Linux Tools API Server"""
-    
+
     def __init__(self, server_url: str, timeout: int = DEFAULT_REQUEST_TIMEOUT):
         """
         Initialize the Kali Tools Client
@@ -41,7 +41,7 @@ class KaliToolsClient:
         self.server_url = server_url.rstrip("/")
         self.timeout = timeout
         logger.info(f"Initialized Kali Tools Client connecting to {server_url}")
-        
+
     def safe_get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Perform a GET request with optional query parameters.
@@ -82,7 +82,7 @@ class KaliToolsClient:
             Response data as dictionary
         """
         url = f"{self.server_url}/{endpoint}"
-        
+
         try:
             logger.debug(f"POST {url} with data: {json_data}")
             response = requests.post(url, json=json_data, timeout=self.timeout)
@@ -106,7 +106,7 @@ class KaliToolsClient:
             Command execution results
         """
         return self.safe_post("api/command", {"command": command})
-    
+
     def check_health(self) -> Dict[str, Any]:
         """
         Check the health of the Kali Tools API Server
@@ -115,6 +115,7 @@ class KaliToolsClient:
             Health status information
         """
         return self.safe_get("health")
+
 
 def setup_mcp_server(kali_client: KaliToolsClient) -> FastMCP:
     """
@@ -127,7 +128,7 @@ def setup_mcp_server(kali_client: KaliToolsClient) -> FastMCP:
         Configured FastMCP instance
     """
     mcp = FastMCP("kali-mcp")
-    
+
     @mcp.tool()
     def nmap_scan(target: str, scan_type: str = "-sV", ports: str = "", additional_args: str = "") -> Dict[str, Any]:
         """
@@ -151,7 +152,8 @@ def setup_mcp_server(kali_client: KaliToolsClient) -> FastMCP:
         return kali_client.safe_post("api/tools/nmap", data)
 
     @mcp.tool()
-    def gobuster_scan(url: str, mode: str = "dir", wordlist: str = "/usr/share/wordlists/dirb/common.txt", additional_args: str = "") -> Dict[str, Any]:
+    def gobuster_scan(url: str, mode: str = "dir", wordlist: str = "/usr/share/wordlists/dirb/common.txt",
+                      additional_args: str = "") -> Dict[str, Any]:
         """
         Execute Gobuster to find directories, DNS subdomains, or virtual hosts.
         
@@ -173,7 +175,8 @@ def setup_mcp_server(kali_client: KaliToolsClient) -> FastMCP:
         return kali_client.safe_post("api/tools/gobuster", data)
 
     @mcp.tool()
-    def dirb_scan(url: str, wordlist: str = "/usr/share/wordlists/dirb/common.txt", additional_args: str = "") -> Dict[str, Any]:
+    def dirb_scan(url: str, wordlist: str = "/usr/share/wordlists/dirb/common.txt", additional_args: str = "") -> Dict[
+        str, Any]:
         """
         Execute Dirb web content scanner.
         
@@ -250,13 +253,13 @@ def setup_mcp_server(kali_client: KaliToolsClient) -> FastMCP:
 
     @mcp.tool()
     def hydra_attack(
-        target: str, 
-        service: str, 
-        username: str = "", 
-        username_file: str = "", 
-        password: str = "", 
-        password_file: str = "", 
-        additional_args: str = ""
+            target: str,
+            service: str,
+            username: str = "",
+            username_file: str = "",
+            password: str = "",
+            password_file: str = "",
+            additional_args: str = ""
     ) -> Dict[str, Any]:
         """
         Execute Hydra password cracking tool.
@@ -286,10 +289,10 @@ def setup_mcp_server(kali_client: KaliToolsClient) -> FastMCP:
 
     @mcp.tool()
     def john_crack(
-        hash_file: str, 
-        wordlist: str = "/usr/share/wordlists/rockyou.txt", 
-        format_type: str = "", 
-        additional_args: str = ""
+            hash_file: str,
+            wordlist: str = "/usr/share/wordlists/rockyou.txt",
+            format_type: str = "",
+            additional_args: str = ""
     ) -> Dict[str, Any]:
         """
         Execute John the Ripper password cracker.
@@ -356,7 +359,7 @@ def setup_mcp_server(kali_client: KaliToolsClient) -> FastMCP:
             Server health information
         """
         return kali_client.check_health()
-    
+
     @mcp.tool()
     def execute_command(command: str) -> Dict[str, Any]:
         """
@@ -372,28 +375,30 @@ def setup_mcp_server(kali_client: KaliToolsClient) -> FastMCP:
 
     return mcp
 
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Run the Kali MCP Client")
-    parser.add_argument("--server", type=str, default=DEFAULT_KALI_SERVER, 
-                      help=f"Kali API server URL (default: {DEFAULT_KALI_SERVER})")
+    parser.add_argument("--server", type=str, default=DEFAULT_KALI_SERVER,
+                        help=f"Kali API server URL (default: {DEFAULT_KALI_SERVER})")
     parser.add_argument("--timeout", type=int, default=DEFAULT_REQUEST_TIMEOUT,
-                      help=f"Request timeout in seconds (default: {DEFAULT_REQUEST_TIMEOUT})")
+                        help=f"Request timeout in seconds (default: {DEFAULT_REQUEST_TIMEOUT})")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     return parser.parse_args()
+
 
 def main():
     """Main entry point for the MCP server."""
     args = parse_args()
-    
+
     # Configure logging based on debug flag
     if args.debug:
         logger.setLevel(logging.DEBUG)
         logger.debug("Debug logging enabled")
-    
+
     # Initialize the Kali Tools client
     kali_client = KaliToolsClient(args.server, args.timeout)
-    
+
     # Check server health and log the result
     health = kali_client.check_health()
     if "error" in health:
@@ -407,11 +412,12 @@ def main():
             missing_tools = [tool for tool, available in health.get("tools_status", {}).items() if not available]
             if missing_tools:
                 logger.warning(f"Missing tools: {', '.join(missing_tools)}")
-    
+
     # Set up and run the MCP server
     mcp = setup_mcp_server(kali_client)
     logger.info("Starting Kali MCP server")
     mcp.run()
+
 
 if __name__ == "__main__":
     main()
