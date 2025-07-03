@@ -1,9 +1,12 @@
 import os
 
+import requests
 from dotenv import load_dotenv
 from openai import OpenAI
 
 from mcp_server import KaliToolsClient
+
+MCP_URL = "http://localhost:5000/api/command"
 
 load_dotenv()
 
@@ -72,49 +75,75 @@ messages = [
                     - "Can I brute-force this login?"
                     - "Let's try directory fuzzing"
                     - "Can I run gobuster on this?"
-
+                    - "curl the website 
+                    - "Run this command "
+                    Do not mention that you cannot execute codes if you are asked to execute it
 """},
     {"role": "user", "content": "Hello, how can I use OpenAI API in Python?"}
 ]
-
-import re
 
 messages = []
 
 
 def should_execute(response_text: str) -> bool:
     """
-    Checks if the LLM response implies a command should be executed.
+    Determines if the LLM is suggesting execution or active analysis steps.
     """
     trigger_phrases = [
-        "you can run", "you should try", "execute", "use this command", "run this", "try this", "to solve this",
-        "launch"
+        # Command-related phrases
+        "run", "you should try", "execute", "use this command", "run this", "try this", "to solve this", "launch",
+
+        # Developer tool suggestions
+        "open the developer tools", "inspect the page", "inspect element", "go to the sources tab",
+        "look at the console", "check the network tab", "check network activity", "inspect html",
+
+        # Searching for flags manually
+        "search for picoctf", "search for flag", "search the page", "look for hidden", "check html comments",
+        "check javascript files", "check inline javascript", "check embedded scripts", "check hidden elements",
+
+        # Resource-level suggestions
+        "go to the sources tab", "view the html source", "review the page", "analyze the scripts",
+        "check console messages", "reload the page and inspect", "inspect various aspects", "use your web browser"
     ]
+
     response_lower = response_text.lower()
-    return any(phrase in response_lower for phrase in trigger_phrases) and "```" in response_text
+    return any(phrase in response_lower for phrase in trigger_phrases)
 
 
-def extract_command_from_codeblock(text: str) -> str:
+def extract_all_commands_from_codeblocks(text: str) -> list[str]:
     """
-    Extracts the command inside the first ```bash code block``` (or any code block).
+    Extracts all shell commands from all ```bash ...``` or ```...``` code blocks.
+    Returns a list of cleaned command strings.
     """
-    match = re.search(r"```(?:bash)?\n?(.*?)```", text, re.DOTALL)
-    return match.group(1).strip() if match else ""
+    import re
+    matches = re.findall(r"```(?:bash)?\s*(.*?)\s*```", text, re.DOTALL)
+    return [match.strip() for match in matches if match.strip()]
+
+
+def send_to_mcp(command):
+    payload = {"command": command}
+    response = requests.post(MCP_URL, json=payload)
+    response.raise_for_status()
+    return response.json()  # expect JSON dict with stdout, etc.
 
 
 def handle_possible_execution(response_text: str):
     """
-    Checks if execution is needed, extracts the command, and runs it via MCP server.
+    Checks if execution is needed, extracts all commands, and runs them via MCP server.
+    Combines and returns all outputs.
     """
     if should_execute(response_text):
-        command = extract_command_from_codeblock(response_text)
-        if command:
-            print(f"\n🚀 Running detected command:\n{command}")
-            result = kali_client.execute_command(command)
-            print("\n📥 Output from MCP:\n", result)
-            return result
+        commands = extract_all_commands_from_codeblocks(response_text)
+        if commands:
+            combined_results = []
+            for idx, command in enumerate(commands, 1):
+                print(f"\n🚀 Running command #{idx}:\n{command}")
+                result = send_to_mcp(command)
+                print(f"\n📥 Output from MCP for command #{idx}:\n", result)
+                combined_results.append(result)
+            return combined_results
         else:
-            print("⚠️ Command could not be extracted.")
+            print("⚠️ No valid commands could be extracted.")
     else:
         print("✅ No command to execute.")
 
@@ -132,10 +161,25 @@ while True:
     print("\n🤖 GPT Response:\n", answer)
     messages.append({"role": "assistant", "content": answer})
 
-    handle_possible_execution(answer)
+    execution_result = handle_possible_execution(answer)
+    if execution_result:
+        # Step 4: Use a system prompt to explain the output
+        system_prompt = {
+            "role": "system",
+            "content": (
+                "You are an expert CTF assistant. The following is the output from running commands "
+                "on a CTF challenge. Analyze it carefully and provide a clear, concise summary or extract the flag "
+                "if possible. If no flag is present, explain what should be done next.\n\n"
+                f"Command Output:\n{execution_result}"
+            )
+        }
+        messages.append(system_prompt)
 
-
-
+        # Step 5: Ask GPT to process the command output
+        response = client.chat.completions.create(model="gpt-4o", messages=messages)
+        followup = response.choices[0].message.content.strip()
+        print("\n🧠 Follow-up Analysis:\n", followup)
+        messages.append({"role": "assistant", "content": followup})
 
     # Step 3: Stop early if flag found
     # if "the flag is" in answer.lower() or "flag{" in answer.lower():
